@@ -5,3 +5,5 @@
 .option{display:flex}.screen header{padding:16px 4vw}.screen main{margin:20px auto}.screen h1{font-size:clamp(32px,3.2vw,64px)}.screen .options{grid-template-columns:repeat(2,minmax(0,1fr))}.screen .empty{padding:14px 0}.screen .result{padding:10px 0}.screen .progress{height:22px}@media(max-height:800px) and (min-width:1000px){.screen header{padding:12px 4vw}.screen main{margin:12px auto}.screen h1{font-size:38px;margin:10px 0 16px}.screen .card{padding:18px;margin-bottom:12px}.screen .result{font-size:20px;padding:6px 0}.screen .progress{height:14px;margin-top:6px}.screen .option{min-height:60px;font-size:22px;padding:12px}.screen .qr{width:190px;height:190px}}@media(max-width:760px){.screen .options{grid-template-columns:1fr}}
 
 .countdown{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;margin-bottom:16px;border-radius:12px;background:#d6ef72;color:#123c32}.countdown span{font-size:14px;font-weight:650}.countdown strong{font-size:28px;white-space:nowrap}.screen .countdown strong{font-size:36px}
+
+.option.selected:disabled{opacity:1}
