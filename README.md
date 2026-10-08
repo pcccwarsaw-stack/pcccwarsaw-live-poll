@@ -2,6 +2,8 @@
 
 完整现场偏好投票应用。主持人、手机和独立只读大屏共享服务端 SQLite 状态。没有正确答案，也没有正确率排名。预置题库是可编辑的真实活动输入，不是模拟投票数据。
 
+**部署到 Cloudflare：请按 [Cloudflare 完整部署步骤](CLOUDFLARE-DEPLOY.md) 操作。** 已提供 Workers + SQLite Durable Objects 版本，支持 5 秒自动截止、首票锁定和持久保存；本地 Node/Docker 版本继续可用。
+
 ## 本地启动
 
 需要 Node.js **24 或更高版本**、npm。使用 Node 内置 `node:sqlite`，无需另装数据库服务器。

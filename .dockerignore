@@ -4,3 +4,8 @@ data
 .git
 tests
 test-results.txt
+.wrangler
+.dev.vars*
+cloudflare-test-results.txt
+full-test-results.txt
+live-poll-source.zip

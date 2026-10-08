@@ -1,0 +1,16 @@
+▶ Cloudflare workerd + SQLite Durable Object 实际集成验证
+  ✔ 静态页面、安全请求来源、登录和持久题库 (889.2925ms)
+  ✔ 100 个真实匿名 Cookie、并发提交、首票锁定及隐藏分布 (2587.5625ms)
+  ✔ 持久 Alarm 在无人轮询时自动公布、截止后拒绝 (4091.3383ms)
+  ✔ 重新投票、旧轮拒绝、新题同步与结束 (207.0784ms)
+Cloudflare local persisted state: C:\Users\35317\AppData\Local\Temp\live-poll-cloudflare-Z19Inv
+  ✔ workerd 完整重启后云端数据库、身份和历史恢复 (890.016ms)
+✔ Cloudflare workerd + SQLite Durable Object 实际集成验证 (9158.1111ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 10356.1635

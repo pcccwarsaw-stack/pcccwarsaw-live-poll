@@ -1,0 +1,18 @@
+{
+  "name": "pcccwarsaw-live-poll",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-10-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+    "html_handling": "none"
+  },
+  "durable_objects": {
+    "bindings": [{"name": "POLL_STORE", "class_name": "LivePollStore"}]
+  },
+  "migrations": [{"tag": "v1", "new_sqlite_classes": ["LivePollStore"]}],
+  "observability": {"enabled": true}
+}

@@ -4,3 +4,7 @@ data/*
 .env
 *.sqlite*
 live-poll-source.zip
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

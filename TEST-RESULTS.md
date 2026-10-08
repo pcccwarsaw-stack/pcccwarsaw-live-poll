@@ -2,7 +2,7 @@
 
 日期：2026-10-08。环境：Windows，Node.js v24.16.0，npm 11.13.0。本地真实 HTTP 服务 + SQLite 临时磁盘数据库。
 
-运行 `npm test`：**16 tests / 16 pass / 0 fail**（1 个父测试和 15 个子测试），首票锁定版本复跑结果见 `test-results.txt`（原始输出见 `test-results.txt`）。依赖安装 audit：0 vulnerabilities（当时的扫描结果）。
+运行 `npm test`：**22 tests / 22 pass / 0 fail**（Node 16 项 + Cloudflare 6 项），完整复跑约 27.35 秒。原始输出见 `full-test-results.txt`；各运行时记录见 `test-results.txt` 和 `cloudflare-test-results.txt`。
 
 | 检查 | 实际结果 |
 | --- | --- |
@@ -43,3 +43,9 @@
 ## 每轮一次投票验证
 
 新增真实 HTTP 集成测试：同一匿名身份对新轮次并发提交 20 个不同选项请求，只保留第一张票；与第一张票相同的请求返回 200 且不增加计票，不同选项返回 409；数据库中只有 1 张有效票。刷新读回相同选择；服务进程重启后仍然拒绝改投，最终结果保留第一票。原重新投票与下一题测试确认新轮次可以重新提交。
+
+## Cloudflare 适配验证
+
+使用 Wrangler 4.149.0 官方 workerd 运行时，本地实际 SQLite Durable Object 存储。6 项测试全部通过：静态资源和安全头、来源校验、主持人权限、题库持久保存、100 个独立匿名 Cookie 并发投票、首次选择锁定、公布前接口不返回分布、跨活动隔离、无 HTTP 轮询时 Alarm 自动公布、到期拒绝、重新开轮和旧轮拒绝、下一题和结束、完整 workerd 重启后数据库/身份/历史恢复。Alarm 测试先直接读取本地持久 SQLite 文件，再访问 HTTP，排除了由读取接口触发公布的假阳性。
+
+`npm run build:cloudflare` 最终 dry-run 成功，Worker 包约 94.09 KiB（gzip 22.46 KiB），绑定 POLL_STORE 和 ASSETS。没有进行远程账号登录、namespace 创建、真实域名或公网部署；没有验证云端地域延迟、正式活动容量、真实手机扫码或生产 PITR。共享业务逻辑从 server.js 提取到 src/app.js，Node 和 Cloudflare 两种运行时复用相同权限、截止与首票锁定规则。
