@@ -4,6 +4,7 @@ import {spawn} from 'node:child_process';
 import {mkdtempSync,readFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
+import {DatabaseSync} from 'node:sqlite';
 const root=mkdtempSync(join(tmpdir(),'live-poll-test-')),port=32187,origin=`http://localhost:${port}`,secret='test-only-credential-32-characters';
 let child;
 async function boot(){child=spawn(process.execPath,['server.js'],{env:{...process.env,HOST_SECRET:secret,PUBLIC_ORIGIN:origin,PORT:String(port),DB_PATH:join(root,'db.sqlite'),COOKIE_SECURE:'false'},stdio:['ignore','pipe','pipe']});let log='';child.stderr.on('data',d=>log+=d);for(let i=0;i<100;i++){try{if((await fetch(origin+'/health')).ok)return;}catch{}if(child.exitCode!==null)throw Error(log);await new Promise(r=>setTimeout(r,50));}throw Error('Server did not start: '+log);}
@@ -25,5 +26,47 @@ await t.test('下一题同步、身份刷新恢复、4/3/2/1 示例百分比、�
 await t.test('真实服务进程重启恢复活动、题库、投票和匿名选择',async()=>{await stop();await boot();const bank=(await req('/api/bank','GET',undefined,host)).data;assert.equal(bank.length,10);assert.equal(bank[0].title,'持久保存验证 / Persistent bank verification');const current=(await req(`/api/events/${other.id}/state?participant=1`,'GET',undefined,people[0].cookie)).data;assert.equal(current.choice,0);assert.deepEqual(current.result.counts,[4,3,2,1]);assert.equal((await req('/api/events','GET',undefined,host)).data.length,2);});
 await t.test('结束活动及结束后拒绝控制和投票',async()=>{const ended=await control(s,'end',host);assert.equal(ended.data.status,'ended');assert.equal((await control(ended.data,'start',host)).status,409);assert.equal((await vote(s,people[0].cookie,0)).status,409);});
 await t.test('非整除百分比合计 100、限流实际生效',async()=>{let c=(await req('/api/events','POST',{name:'rounding'},host)).data;await Promise.all(people.slice(0,3).map(p=>req('/api/join','POST',{code:c.code},p.cookie)));c=(await control(c,'start',host)).data;await Promise.all(people.slice(0,3).map((p,i)=>vote(c,p.cookie,i)));c=(await control(c,'reveal',host)).data;assert.deepEqual(c.result.percentages,[34,33,33,0]);let r;for(let i=0;i<65;i++){r=await vote(old,people[99].cookie,0);if(r.status===429)break;}assert.equal(r.status,429);});
+await t.test('5 秒自动公布、截止前改选、无请求也截止、两活动倒计时隔离',async()=>{
+let a=(await req('/api/events','POST',{name:'5 秒自动截止'},host)).data;
+let b=(await req('/api/events','POST',{name:'独立倒计时'},host)).data;
+await req('/api/join','POST',{code:a.code},people[0].cookie);
+await req('/api/join','POST',{code:b.code},people[0].cookie);
+a=(await control(a,'start',host)).data;
+assert.equal(a.endsAt-a.serverTime<=5000,true);assert.equal(a.votingDurationMs,5000);
+assert.equal((await vote(a,people[0].cookie,0)).status,200);
+await new Promise(r=>setTimeout(r,1100));
+b=(await control(b,'start',host)).data;
+assert.ok(b.endsAt>a.endsAt);
+assert.equal((await vote(a,people[0].cookie,1)).status,200);
+await new Promise(r=>setTimeout(r,Math.max(0,a.endsAt-Date.now()+180)));
+const saved=new DatabaseSync(join(root,'db.sqlite'),{readOnly:true});
+assert.equal(saved.prepare('SELECT status FROM events WHERE id=?').get(a.id).status,'results');saved.close();
+assert.equal((await vote(a,people[0].cookie,2)).status,409);
+const result=(await req(`/api/events/${a.id}/state`)).data;
+assert.deepEqual(result.result.counts,[0,1,0,0]);
+assert.equal((await req(`/api/events/${b.id}/state`)).data.status,'voting');
+assert.equal((await vote(b,people[0].cookie,3)).status,200);
+await new Promise(r=>setTimeout(r,Math.max(0,b.endsAt-Date.now()+180)));
+assert.deepEqual((await req(`/api/events/${b.id}/state`)).data.result.counts,[0,0,0,1]);
+});
+await t.test('5 秒截止时间跨重启保持；停机期间到期启动后立即公布',async()=>{
+let a=(await req('/api/events','POST',{name:'重启倒计时'},host)).data;
+await req('/api/join','POST',{code:a.code},people[1].cookie);
+a=(await control(a,'start',host)).data;
+assert.equal((await vote(a,people[1].cookie,2)).status,200);
+await stop();await boot();
+const resumed=(await req(`/api/events/${a.id}/state`)).data;
+assert.equal(resumed.endsAt,a.endsAt);assert.equal(resumed.status,'voting');
+await stop();await new Promise(r=>setTimeout(r,Math.max(0,a.endsAt-Date.now()+50)));await boot();
+const result=(await req(`/api/events/${a.id}/state`)).data;
+assert.equal(result.status,'results');assert.deepEqual(result.result.counts,[0,0,1,0]);
+assert.equal((await vote(a,people[1].cookie,0)).status,409);
+});
+await t.test('旧数据库迁移保留投票和结果',async()=>{
+await stop();const legacy=new DatabaseSync(join(root,'db.sqlite'));
+legacy.exec('ALTER TABLE rounds DROP COLUMN closes_at');legacy.close();await boot();
+const result=(await req(`/api/events/${other.id}/state`)).data;
+assert.deepEqual(result.result.counts,[4,3,2,1]);
+});
 console.log('Test DB (temporary): '+root);
 });
