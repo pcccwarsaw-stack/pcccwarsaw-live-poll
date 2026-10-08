@@ -4,6 +4,8 @@
 
 **部署到 Cloudflare：请按 [Cloudflare 完整部署步骤](CLOUDFLARE-DEPLOY.md) 操作。** 已提供 Workers + SQLite Durable Objects 版本，支持可配置时长、自动截止、活动总结看板、首票锁定和持久保存；本地 Node/Docker 版本继续可用。
 
+主持人可在结束后的总结生成、保存、复制和下载 **AI 偏好分析报告**，使用真实 Cloudflare Workers AI，按需调用并缓存。[配置、免费额度及验证说明](AI-REPORT.md)。未配置 AI 时，投票和原始总结仍可正常使用。
+
 ## 本地启动
 
 需要 Node.js **24 或更高版本**、npm。使用 Node 内置 `node:sqlite`，无需另装数据库服务器。

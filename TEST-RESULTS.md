@@ -2,7 +2,11 @@
 
 最新验证日期：2026-10-09（本地时间）。环境：Windows，Node.js v24.16.0，npm 11.13.0。本地真实 HTTP 服务 + SQLite 临时磁盘数据库；Cloudflare 验证使用官方 workerd。
 
-运行 `npm test`：**29 tests / 29 pass / 0 fail**（Node 原流程 16 项 + 新功能 6 项 + Cloudflare 7 项），完整复跑约 32.58 秒。最新原始输出见 `full-test-results.txt`；`test-results.txt` 和 `cloudflare-test-results.txt` 是早期单独运行记录。
+运行 `npm test`：**44 tests / 44 pass / 0 fail**（Node 原流程 16 项 + 时长和总结 6 项 + Cloudflare 7 项 + AI 15 项），完整复跑约 34.92 秒。最新原始输出为 `full-test-results.txt`；`test-results.txt` 和 `cloudflare-test-results.txt` 是早期单独运行记录。
+
+AI 功能通过数据库持久化、20 个并发生成去重、权限/同源隔离、失败恢复和资源限制验证。模型调用与 REST 传输使用测试替身；**未调用真实 Cloudflare 模型，未验收线上中文分析质量或实际 Neuron 用量**。Cloudflare dry-run 通过，包含 AI、POLL_STORE 和 ASSETS 绑定。详见 [AI 报告验证范围](AI-REPORT.md)。
+
+桌面浏览器检查：主持人登录、打开结束总结、未配置 AI 提示、读取已保存的界面测试文本、刷新后重新打开保存报告，成功且 console 无错误。复制按钮显示成功提示，但自动化读取的系统剪贴板未返回预期内容；下载事件在内置浏览器未成功捕获，因此未将这两项计为浏览器端到端通过。服务端文件导出的鉴权、UTF-8、下载响应头及包含原始统计的文件内容已通过 API 自动测试，仍需 Chrome/Edge 实际复制与下载验收。界面文本明确标注非真实 AI 生成，未写入生产数据库。
 
 | 检查 | 实际结果 |
 | --- | --- |

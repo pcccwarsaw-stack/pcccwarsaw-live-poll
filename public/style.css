@@ -7,6 +7,7 @@
 .countdown{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;margin-bottom:16px;border-radius:12px;background:#d6ef72;color:#123c32}.countdown span{font-size:14px;font-weight:650}.countdown strong{font-size:28px;white-space:nowrap}.screen .countdown strong{font-size:36px}
 
 .option.selected:disabled{opacity:1}
+.ai-panel{margin-top:24px;border-top:5px solid var(--green)}.ai-panel h2{margin:8px 0}.ai-panel select{font:inherit;color:var(--green);background:white;border:1px solid #afc1b7;border-radius:10px;min-height:48px;padding:10px 14px;display:block;margin:8px 0 18px;max-width:100%}.ai-report{max-width:880px}.ai-report p,.ai-report li{white-space:pre-wrap;overflow-wrap:anywhere}.ai-report p{color:var(--green)}.ai-report li{margin:12px 0}.ai-report h3{margin-top:24px}.ai-report ul{padding-left:24px}
 
 #notice[data-kind="success"]{background:var(--green)}.confirmation{max-width:min(440px,calc(100vw - 32px));border:1px solid #afc1b7;border-radius:20px;padding:28px;color:var(--green);box-shadow:0 20px 80px #123c3233}.confirmation::backdrop{background:#123c3270}.confirmation h2{margin-top:0}.confirmation .row{justify-content:flex-end}
 

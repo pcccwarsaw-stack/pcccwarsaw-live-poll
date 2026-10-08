@@ -1,5 +1,6 @@
 import {DurableObject} from 'cloudflare:workers';
 import {createApp,securityHeaders} from '../src/app.js';
+import {createAnalyzer} from '../src/ai.js';
 import questions from '../questions.json';
 
 export class LivePollStore extends DurableObject {
@@ -22,7 +23,8 @@ export class LivePollStore extends DurableObject {
       run:(...p)=>sql.exec(s,...p).toArray()
     })};
     const app=createApp({db,transaction:fn=>this.ctx.storage.transactionSync(fn),
-      secret:this.env.HOST_SECRET,origin,secure:origin.startsWith('https:'),initialQuestions:questions});
+      secret:this.env.HOST_SECRET,origin,secure:origin.startsWith('https:'),initialQuestions:questions,
+      analyzer:createAnalyzer({ai:this.env.AI,model:this.env.AI_MODEL})});
     this.apps.set(origin,app);return app;
   }
   async scheduleAlarm(){

@@ -7,6 +7,9 @@ services:
       PUBLIC_ORIGIN: https://${DOMAIN:?set DOMAIN in .env}
       COOKIE_SECURE: "true"
       TRUST_PROXY: "true"
+      CLOUDFLARE_ACCOUNT_ID: ${CLOUDFLARE_ACCOUNT_ID:-}
+      CLOUDFLARE_AI_TOKEN: ${CLOUDFLARE_AI_TOKEN:-}
+      AI_MODEL: ${AI_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
     volumes:
       - poll-data:/app/data
     expose:

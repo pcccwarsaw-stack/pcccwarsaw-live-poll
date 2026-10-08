@@ -1,7 +1,8 @@
 import {randomBytes,createHash,timingSafeEqual} from 'node:crypto';
 import QRCode from 'qrcode';
+import {analysisInput,validateAnalysis,formatReport} from './ai.js';
 export const securityHeaders={'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"};
-export function createApp({db,transaction,secret,origin,secure,initialQuestions}){
+export function createApp({db,transaction,secret,origin,secure,initialQuestions,analyzer=null}){
 if(!secret||secret.length<24)throw Error('HOST_SECRET must contain at least 24 characters');
 if(new URL(origin).origin!==origin)throw Error('PUBLIC_ORIGIN must be an origin without trailing slash');
 db.exec(`CREATE TABLE IF NOT EXISTS bank(id INTEGER PRIMARY KEY CHECK(id=1), json TEXT NOT NULL);
@@ -11,7 +12,8 @@ CREATE TABLE IF NOT EXISTS questions(id TEXT PRIMARY KEY,event_id TEXT NOT NULL 
 CREATE TABLE IF NOT EXISTS rounds(id TEXT PRIMARY KEY,event_id TEXT NOT NULL REFERENCES events(id),question_id TEXT NOT NULL REFERENCES questions(id),status TEXT NOT NULL,created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS members(event_id TEXT NOT NULL REFERENCES events(id),session TEXT NOT NULL REFERENCES sessions(token),PRIMARY KEY(event_id,session));
 CREATE TABLE IF NOT EXISTS votes(round_id TEXT NOT NULL REFERENCES rounds(id),session TEXT NOT NULL REFERENCES sessions(token),choice INTEGER NOT NULL,PRIMARY KEY(round_id,session));
-CREATE TABLE IF NOT EXISTS limits(key TEXT PRIMARY KEY,window INTEGER NOT NULL,count INTEGER NOT NULL);`);
+CREATE TABLE IF NOT EXISTS limits(key TEXT PRIMARY KEY,window INTEGER NOT NULL,count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS ai_reports(event_id TEXT PRIMARY KEY REFERENCES events(id),status TEXT NOT NULL,data_kind TEXT NOT NULL,model TEXT NOT NULL,started INTEGER NOT NULL,completed INTEGER,attempts INTEGER NOT NULL,job TEXT NOT NULL,content TEXT,error TEXT);`);
 const get=(s,...p)=>db.prepare(s).get(...p), all=(s,...p)=>db.prepare(s).all(...p), run=(s,...p)=>db.prepare(s).run(...p);
 const DEFAULT_VOTING_SECONDS=5;
 // Migrate existing databases without resetting activities or votes.
@@ -49,6 +51,44 @@ const questions=qs.map(q=>{const history=rounds.filter(r=>r.question_id===q.id).
 return{eventId:e.id,name:e.name,code:e.code,status:e.status,joined:get('SELECT COUNT(*) AS n FROM members WHERE event_id=?',e.id).n,totalQuestions:qs.length,completedQuestions:questions.filter(q=>q.finalResult).length,totalRounds:rounds.length,totalVotes:questions.reduce((n,q)=>n+(q.finalResult?.total||0),0),questions};
 }
 async function body(req){let b='';for await(const c of req){b+=c;if(b.length>150000)fail(413,'请求过大');}let value;try{value=JSON.parse(b||'{}');}catch{fail(400,'JSON 格式错误');}if(!value||typeof value!=='object')fail(400,'请求 JSON 必须为对象或题库数组');return value;}
+function aiReport(e){
+run("UPDATE ai_reports SET status='failed',error=? WHERE event_id=? AND status='pending' AND started<=?",'上次生成已中断，请手动重试（可能已消耗 AI 额度）',e.id,Date.now()-120000);
+const r=get('SELECT * FROM ai_reports WHERE event_id=?',e.id);
+const saved=r?.content?JSON.parse(r.content):null;
+const data={available:!!analyzer,status:r?.status||'none',dataKind:r?.data_kind||null,model:r?.model||analyzer?.model||null,generatedAt:r?.completed||null,
+attempts:r?.attempts||0,retriesLeft:Math.max(0,3-(r?.attempts||0)),retryAt:r?.status==='failed'?r.started+120000:null,error:r?.error||null,report:saved?.report||saved};
+if(data.report){const basis=saved.summary||summary(e);data.basis={joined:basis.joined,totalVotes:basis.totalVotes,completedQuestions:basis.completedQuestions,totalQuestions:basis.totalQuestions};data.text=formatReport({...data,summary:basis});}return data;
+}
+async function generateReport(e,b,hostSession){
+if(e.status!=='ended')fail(409,'请先结束活动，再生成 AI 报告');
+const current=aiReport(e);if(current.status==='ready'||current.status==='pending')return current;
+if(!analyzer)fail(503,'尚未配置 Workers AI 绑定；本地运行需配置 Cloudflare AI 账号和 API Token');
+if(!['live','simulation'].includes(b.dataKind))fail(400,'请选择现场投票或模拟测试');
+const sourceSummary=summary(e);sourceSummary.questions=sourceSummary.questions.map(({rounds,...q})=>q);
+const input=analysisInput(sourceSummary,b.dataKind);
+if(input.totalVotes===0)fail(409,'本场没有有效投票，无法分析偏好');
+if(JSON.stringify(input).length>24000)fail(400,'题目和选项文字过多，超过 AI 报告的 24,000 字符输入上限');
+const job=id();
+const claimed=tx(()=>{
+const row=get('SELECT * FROM ai_reports WHERE event_id=?',e.id);
+if(row?.status==='ready'||row?.status==='pending')return false;
+if(row&&row.attempts>=3)fail(429,'本场已达到 3 次生成尝试上限，请保留现有总结看板');
+if(row&&Date.now()<row.started+120000)fail(429,'请在上次尝试两分钟后手动重试');
+limit('ai:'+hostSession,5);limit('ai:global',10);
+run(`INSERT INTO ai_reports VALUES(?,?,?,?,?,NULL,1,?,NULL,NULL)
+ON CONFLICT(event_id) DO UPDATE SET status='pending',data_kind=excluded.data_kind,model=excluded.model,started=excluded.started,completed=NULL,attempts=ai_reports.attempts+1,job=excluded.job,content=NULL,error=NULL`,e.id,'pending',b.dataKind,analyzer.model,Date.now(),job);
+return true;
+});
+if(!claimed)return aiReport(e);
+try{
+const content=validateAnalysis(await analyzer.generate(input),input.totalQuestions);
+run("UPDATE ai_reports SET status='ready',content=?,completed=?,error=NULL WHERE event_id=? AND job=? AND status='pending'",JSON.stringify({report:content,summary:sourceSummary}),Date.now(),e.id,job);
+}catch(err){
+const message=err.status===400?err.message:'AI 生成未完成，请检查 Workers AI 绑定、可用额度和模型权限；两分钟后可手动重试';
+run("UPDATE ai_reports SET status='failed',error=? WHERE event_id=? AND job=? AND status='pending'",message,e.id,job);
+}
+return aiReport(e);
+}
 const json=(res,status,data)=>{res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
 
 async function handle(req,res){
@@ -64,14 +104,24 @@ if(path==='/api/logout'&&method==='POST'){const t=cookie(req,'lp_host');if(t)run
 if(path==='/api/join'&&method==='POST'){limit('join:'+ip,240);const b=await body(req);if(typeof b.code!=='string'||!/^\d{6}$/.test(b.code))fail(400,'活动码必须是 6 位数字');const e=get('SELECT * FROM events WHERE code=?',b.code);if(!e)fail(404,'活动码不存在');let s;try{s=session(req,'guest');}catch{const token=id();s=hash(token);run('INSERT INTO sessions VALUES(?,?,?)',s,'guest',Date.now()+30*86400000);setCookie(res,'lp_guest',token,30*86400);}run('INSERT OR IGNORE INTO members VALUES(?,?)',e.id,s);return json(res,200,state(e,s));}
 if(path==='/api/bank'){session(req,'host');if(method==='GET')return json(res,200,JSON.parse(get('SELECT json FROM bank').json));if(method==='PUT'){const qs=validate(await body(req));run('UPDATE bank SET json=?',JSON.stringify(qs));return json(res,200,{ok:true});}}
 if(path==='/api/events'){session(req,'host');if(method==='GET')return json(res,200,all('SELECT id,code,name,status,created FROM events ORDER BY created DESC'));if(method==='POST'){limit('create:'+ip,10);const b=await body(req);if(typeof b.name!=='string'||!b.name.trim()||b.name.length>100)fail(400,'活动名称必须为 1–100 字符');const votingSeconds=validateDuration(b.votingSeconds===undefined?DEFAULT_VOTING_SECONDS:b.votingSeconds);const qs=validate(b.questions===undefined?JSON.parse(get('SELECT json FROM bank').json):b.questions);const e=tx(()=>{const eid=id();let code;do{code=String(100000+randomBytes(4).readUInt32BE()%900000);}while(get('SELECT id FROM events WHERE code=?',code));run('INSERT INTO events(id,code,name,created,voting_seconds) VALUES(?,?,?,?,?)',eid,code,b.name.trim(),Date.now(),votingSeconds);qs.forEach((q,i)=>run('INSERT INTO questions VALUES(?,?,?,?,?,0)',id(),eid,i,q.title,JSON.stringify(q.options)));return event(eid);});return json(res,201,state(e));}}
-const m=path.match(/^\/api\/events\/([a-f0-9]{36})(?:\/(state|vote|control|settings|summary|questions|history|qr))?$/);
+const m=path.match(/^\/api\/events\/([a-f0-9]{36})(?:\/(state|vote|control|settings|summary|analysis|analysis-export|questions|history|qr))?$/);
 if(m){const e=event(m[1]),action=m[2];
 if(method==='GET'&&action==='state'){let s; if(u.searchParams.get('participant')==='1'){s=session(req,'guest');if(!get('SELECT * FROM members WHERE event_id=? AND session=?',e.id,s))fail(403,'尚未加入此活动');}return json(res,200,state(e,s));}
 if(method==='GET'&&action==='qr'){res.writeHead(200,{'Content-Type':'image/svg+xml'});return res.end(await QRCode.toString(`${origin}/join/${e.code}`,{type:'svg',margin:2,width:240,color:{dark:'#123c32',light:'#ffffff'}}));}
 if(method==='POST'&&action==='vote'){const s=session(req,'guest');limit('vote:'+s,60);const b=await body(req);tx(()=>{const fresh=event(e.id);if(!get('SELECT * FROM members WHERE event_id=? AND session=?',e.id,s))fail(403,'未加入此活动');const r=get('SELECT * FROM rounds WHERE id=?',fresh.round_id);if(b.eventId!==e.id||fresh.status!=='voting'||!r||r.status!=='voting'||Date.now()>=r.closes_at||b.roundId!==r.id||b.questionId!==r.question_id)fail(409,'当前轮次未开放或已结束，请同步后重试');const q=get('SELECT * FROM questions WHERE id=?',r.question_id);if(!Number.isInteger(b.choice)||b.choice<0||b.choice>=JSON.parse(q.options).length)fail(400,'选项无效');const previous=get('SELECT choice FROM votes WHERE round_id=? AND session=?',r.id,s);if(previous){if(previous.choice!==b.choice)fail(409,'本轮已投票，选择已锁定，不能改投');return;}run('INSERT INTO votes VALUES(?,?,?)',r.id,s,b.choice);});return json(res,200,state(event(e.id),s));}
-session(req,'host');
+const hostSession=session(req,'host');
 if(method==='GET'&&action==='history')return json(res,200,all("SELECT * FROM rounds WHERE event_id=? AND status='results' ORDER BY created,rowid",e.id).map(results));
 if(method==='GET'&&action==='summary'){if(e.status!=='ended')fail(409,'活动结束后才能查看总结看板');return json(res,200,summary(e));}
+if(method==='GET'&&action==='analysis-export'){
+if(e.status!=='ended')fail(409,'活动结束后才能导出报告');
+const report=aiReport(e);if(report.status!=='ready')fail(409,'尚无已保存的 AI 报告');
+res.writeHead(200,{'Content-Type':'text/plain; charset=utf-8','Content-Disposition':`attachment; filename="live-poll-report-${e.code}.txt"`});return res.end('\ufeff'+report.text);
+}
+if(action==='analysis'&&['GET','POST'].includes(method)){
+if(e.status!=='ended')fail(409,'请先结束活动，再查看或生成 AI 报告');
+const report=method==='POST'?await generateReport(e,await body(req),hostSession):aiReport(e);
+return json(res,report.status==='pending'?202:200,report);
+}
 if(method==='PUT'&&action==='settings'){const b=await body(req);const seconds=validateDuration(b.votingSeconds);tx(()=>{const f=event(e.id);if(f.status==='voting'||f.status==='ended')fail(409,'投票中或已结束的活动不能修改时长');checkControlState(f,b);run('UPDATE events SET voting_seconds=? WHERE id=?',seconds,e.id);});return json(res,200,state(event(e.id)));}
 if(method==='GET'&&action==='questions')return json(res,200,all('SELECT * FROM questions WHERE event_id=? ORDER BY position',e.id).map(q=>({...q,options:JSON.parse(q.options)})));
 if(method==='PUT'&&action==='questions'){const qs=validate(await body(req));tx(()=>{const fresh=event(e.id);if(fresh.status==='ended')fail(409,'活动已结束');const old=all('SELECT * FROM questions WHERE event_id=? ORDER BY position',e.id);for(const q of old.filter(q=>q.locked)){const n=qs[q.position];if(!n||n.title!==q.title||JSON.stringify(n.options)!==q.options)fail(409,`第 ${q.position+1} 题已开放，不能修改、删除或移动`);}if(qs.length<=fresh.position)fail(409,'不能删除当前题目');qs.forEach((q,i)=>{if(old[i])run('UPDATE questions SET title=?,options=? WHERE id=?',q.title,JSON.stringify(q.options),old[i].id);else run('INSERT INTO questions VALUES(?,?,?,?,?,0)',id(),e.id,i,q.title,JSON.stringify(q.options));});for(const q of old.slice(qs.length))run('DELETE FROM questions WHERE id=?',q.id);});return json(res,200,{ok:true});}

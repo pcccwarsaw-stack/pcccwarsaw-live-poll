@@ -21,6 +21,8 @@
 
 Workers Builds 连接 GitHub 后，向 `main` 推送提交会自动构建并部署。查看项目的 Builds / Deployments 确认成功，再刷新网站。域名和现有 Durable Object 数据由同一个 Worker 继续使用，数据库结构升级由应用自动执行。
 
+**AI 报告功能：** Wrangler 已包含名称为 `AI` 的 Workers AI 绑定。部署后在“绑定”中确认已出现 Workers AI，然后在已结束活动的主持人总结中点击生成。无需另设 OpenAI 密钥。[网站配置、用量与测试边界](AI-REPORT.md)。
+
 官方参考：[Git 构建流程](https://developers.cloudflare.com/workers/ci-cd/builds/)、[构建设置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)、[运行时 Secret](https://developers.cloudflare.com/workers/configuration/secrets/)。下面提供可选的命令行部署方式。
 
 ## 1. 准备账号和代码

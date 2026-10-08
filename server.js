@@ -3,11 +3,12 @@ import {DatabaseSync} from 'node:sqlite';
 import {readFileSync,mkdirSync} from 'node:fs';
 import {dirname,resolve} from 'node:path';
 import {createApp,securityHeaders} from './src/app.js';
+import {createAnalyzer} from './src/ai.js';
 const origin=process.env.PUBLIC_ORIGIN||'http://localhost:3000';
 if(process.env.NODE_ENV==='production'&&!origin.startsWith('https:'))throw Error('Production requires HTTPS PUBLIC_ORIGIN');
 const file=process.env.DB_PATH||'./data/poll.sqlite';mkdirSync(dirname(resolve(file)),{recursive:true});
 const db=new DatabaseSync(file);db.exec('PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;');
-const app=createApp({db,transaction:fn=>{db.exec('BEGIN IMMEDIATE');try{const r=fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}},secret:process.env.HOST_SECRET,origin,secure:process.env.COOKIE_SECURE==='true'||origin.startsWith('https:'),initialQuestions:JSON.parse(readFileSync(new URL('./questions.json',import.meta.url)))});
+const app=createApp({db,transaction:fn=>{db.exec('BEGIN IMMEDIATE');try{const r=fn();db.exec('COMMIT');return r;}catch(e){db.exec('ROLLBACK');throw e;}},secret:process.env.HOST_SECRET,origin,secure:process.env.COOKIE_SECURE==='true'||origin.startsWith('https:'),initialQuestions:JSON.parse(readFileSync(new URL('./questions.json',import.meta.url))),analyzer:createAnalyzer({accountId:process.env.CLOUDFLARE_ACCOUNT_ID,token:process.env.CLOUDFLARE_AI_TOKEN,model:process.env.AI_MODEL})});
 const timer=setInterval(()=>{try{app.expireRounds();}catch(e){console.error(e);}},100);timer.unref();
 const server=http.createServer(async(req,res)=>{try{
 const path=new URL(req.url,origin).pathname;
