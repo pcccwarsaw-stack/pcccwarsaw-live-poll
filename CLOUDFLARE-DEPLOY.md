@@ -4,6 +4,25 @@
 
 本次已通过官方 workerd 本地运行时测试和 Cloudflare 构建检查，**没有登录你的 Cloudflare 账号或进行公网部署**。下面的登录、管理凭证和资源创建由你在自己的账号完成。
 
+## 网站部署：GitHub + Cloudflare 控制台
+
+无需本地命令即可部署：Workers & Pages → Create application → Import a repository → 连接 GitHub → 选择 `pcccwarsaw-stack/pcccwarsaw-live-poll`。
+
+| 设置 | 值 |
+| --- | --- |
+| Worker 名称 | `pcccwarsaw-live-poll`，与 wrangler.jsonc 一致 |
+| 生产分支 | `main` |
+| 构建命令 | 留空 |
+| 部署命令 | `npx wrangler deploy`，也可用 `npm run deploy:cloudflare` |
+| 根目录 | 仓库根目录，保持默认 |
+| 构建变量 | `NODE_VERSION=24` |
+
+保存并部署后，在这个 Worker 的 Settings → Variables and Secrets 添加**生产运行时 Secret**：名称 `HOST_SECRET`，值为自己保存的至少 24 字符随机密码，建议 32 字符以上。选择 Secret 并部署。不要只在 Build variables 设置 HOST_SECRET，构建变量不会传给运行时。
+
+Workers Builds 连接 GitHub 后，向 `main` 推送提交会自动构建并部署。查看项目的 Builds / Deployments 确认成功，再刷新网站。域名和现有 Durable Object 数据由同一个 Worker 继续使用，数据库结构升级由应用自动执行。
+
+官方参考：[Git 构建流程](https://developers.cloudflare.com/workers/ci-cd/builds/)、[构建设置](https://developers.cloudflare.com/workers/ci-cd/builds/configuration/)、[运行时 Secret](https://developers.cloudflare.com/workers/configuration/secrets/)。下面提供可选的命令行部署方式。
+
 ## 1. 准备账号和代码
 
 准备 Cloudflare 账号，电脑安装 Node.js 24+ 和 Git。建议先用免费的 `workers.dev` 域名验证，然后再绑定自己的域名。已有项目直接执行：
@@ -78,7 +97,7 @@ https://pcccwarsaw-live-poll.你的子域名.workers.dev/host
 
 `/health` 应显示 `{"ok":true}`。主持人登录后创建一场活动。二维码和参与链接自动使用 Cloudflare 接收到的实际 HTTPS 域名；默认无需配置 PUBLIC_ORIGIN，也没有 localhost 地址写在前端。
 
-用手机流量扫描二维码，再用另一台手机 Wi-Fi 加入同一活动。开始投票 → 显示 5 秒倒计时 → 首次投票成功后锁定 → 自动公布 → 下一题 → 结束。打开独立大屏验证同步。手机刷新后检查已选项仍锁定；最后重新部署一次，检查题库和历史仍在。
+用手机流量扫描二维码，再用另一台手机 Wi-Fi 加入同一活动。先设置并保存投票时长（1–300 秒，默认 5 秒），然后开始投票 → 显示对应倒计时 → 首次投票成功后锁定 → 自动公布 → 下一题 → 结束并自动打开总结看板。打开独立大屏验证同步。手机刷新后检查已选项仍锁定；最后重新部署一次，检查题库、时长设置、历史和总结仍在。
 
 **本地测试活动不会自动搬到云端**。Cloudflare 的数据库独立于 `data/poll.sqlite`。需要沿用本地题库时，从本地主持人页面导出 JSON，再在云端题库导入并保存。已有活动、投票和浏览器 Cookie 不通过 JSON 题库导入迁移。
 
@@ -114,7 +133,7 @@ npm run deploy:cloudflare
 
 Secret 保存在 Cloudflare，不在 GitHub，普通更新不需重新设置。不要删除 Worker、Durable Object namespace 或把数据库实例名称改掉，否则会得到新的空数据库。自动建表使用 `IF NOT EXISTS`，已有题库不会被预置 10 题覆盖。
 
-GitHub 更新不会自动触发部署。本版本采用上面的手动 Wrangler 流程；没有配置 GitHub Actions 账号令牌。
+若已经在 Cloudflare 控制台连接 GitHub 的 Workers Builds，更新 `main` 会自动部署。只采用上述命令行方式、未连接 Git 构建时，需要自己运行部署命令。无需另配 GitHub Actions 令牌。
 
 ## 配额和费用
 

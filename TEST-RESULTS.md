@@ -1,8 +1,8 @@
 # 实际验证记录
 
-日期：2026-10-08。环境：Windows，Node.js v24.16.0，npm 11.13.0。本地真实 HTTP 服务 + SQLite 临时磁盘数据库。
+最新验证日期：2026-10-09（本地时间）。环境：Windows，Node.js v24.16.0，npm 11.13.0。本地真实 HTTP 服务 + SQLite 临时磁盘数据库；Cloudflare 验证使用官方 workerd。
 
-运行 `npm test`：**22 tests / 22 pass / 0 fail**（Node 16 项 + Cloudflare 6 项），完整复跑约 27.35 秒。原始输出见 `full-test-results.txt`；各运行时记录见 `test-results.txt` 和 `cloudflare-test-results.txt`。
+运行 `npm test`：**29 tests / 29 pass / 0 fail**（Node 原流程 16 项 + 新功能 6 项 + Cloudflare 7 项），完整复跑约 32.58 秒。最新原始输出见 `full-test-results.txt`；`test-results.txt` 和 `cloudflare-test-results.txt` 是早期单独运行记录。
 
 | 检查 | 实际结果 |
 | --- | --- |
@@ -49,3 +49,18 @@
 使用 Wrangler 4.149.0 官方 workerd 运行时，本地实际 SQLite Durable Object 存储。6 项测试全部通过：静态资源和安全头、来源校验、主持人权限、题库持久保存、100 个独立匿名 Cookie 并发投票、首次选择锁定、公布前接口不返回分布、跨活动隔离、无 HTTP 轮询时 Alarm 自动公布、到期拒绝、重新开轮和旧轮拒绝、下一题和结束、完整 workerd 重启后数据库/身份/历史恢复。Alarm 测试先直接读取本地持久 SQLite 文件，再访问 HTTP，排除了由读取接口触发公布的假阳性。
 
 `npm run build:cloudflare` 最终 dry-run 成功，Worker 包约 94.09 KiB（gzip 22.46 KiB），绑定 POLL_STORE 和 ASSETS。没有进行远程账号登录、namespace 创建、真实域名或公网部署；没有验证云端地域延迟、正式活动容量、真实手机扫码或生产 PITR。共享业务逻辑从 server.js 提取到 src/app.js，Node 和 Cloudflare 两种运行时复用相同权限、截止与首票锁定规则。
+
+## 可修改时长与活动总结（2026-10-09）
+
+最新完整回归为 29/29 通过，包含新增的 Node HTTP / 磁盘数据库验证及 Cloudflare workerd 验证。已实际检查：
+
+- 创建时指定时长，旧活动和默认创建仍为 5 秒；1 秒、300 秒合法，0、负数、301、小数、字符串、null、布尔值被拒绝。
+- 主持人设置持久保存，匿名身份不能修改。投票中和活动结束后禁止修改；设置与开始操作携带轮次、题号、状态前置条件。
+- 当前轮次截止不受后续设置影响；下一轮和确认重投使用新时长。Node 活跃轮次重启后原截止时间不变，Cloudflare 保存的设置和总结经过 workerd 完整重启恢复。
+- 1 秒自动截止经过 Node 定时器和 Cloudflare 持久 Alarm 验证；没有 HTTP 状态请求时先直接读取 SQLite 确认已公布，到期提交拒绝。
+- 总结仅允许主持人读取，活动结束前返回 409，未登录或匿名身份返回 401。按题目顺序汇总，选取每题最后一轮，不重复加总重投；保留旧轮次、并列第一、零票及未进行题目的区别。两个活动的时长、票数和总结隔离。
+- 总结和历史在服务重启后保持相同；旧 events 表自动增加 voting_seconds 并默认 5 秒，原结果不丢失。
+
+真实桌面 Chromium 浏览器验收：创建 15 秒活动 → 修改并保存 25 秒 → 开始时显示 25 秒倒计时、设置禁用 → 参与者首票成功并锁定 → 公布 → 修改后重投显示 6 秒倒计时 → 完成全部 10 题 → 页面内确认结束 → 自动打开总结。查看板包含 1 个参与身份、10/10 题、1 张最终轮次合计有效票、12 个轮次；旧轮次可以展开，刷新后从活动记录恢复总结。浏览器 console 无 error/warn。截图为 `summary-preview.jpg`。
+
+最新 Cloudflare dry-run 成功，Worker 包约 96.70 KiB（gzip 23.00 KiB）。本次新功能验证在本地进行，100 人负载为模拟匿名会话并发，不是 100 台真实手机；没有据此宣称新版本在公网、真实手机断网/锁屏或现场投影完成验收。
